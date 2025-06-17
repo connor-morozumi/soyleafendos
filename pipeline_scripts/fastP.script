@@ -1,0 +1,76 @@
+# install fastp
+# conda install --name cutadaptenv fastp
+# here I installed it into an conda env we already have and use for this pipeline called cutadapt. This is probably not best practice but I don't know better ;)
+
+# activate the conda env
+source activate cutadaptenv
+
+# Check the options of fastp
+fastp -h
+
+# Navigate to directory
+cd /Users/connor/Dropbox/SoyEndophytes/bioinformatics/CO2_project/data/Arch
+
+# aws nav
+cd /home/ubuntu/CO2_Project/Arch349F_Arch806R
+
+# make a folder to work in
+mkdir fastpFilteredReads
+cd fastpFilteredReads
+
+# Let's get the fastq files:
+# cp from parent folder which is one level up into our cd any file with the text string 'fastq'
+cp ../*fastq  ./
+
+
+# Run fastp
+fastp --in1 Arch349F_Arch806R-21_15_CGTAATGAGC_R1.fastq --out1 Arch349F_Arch806R-21_15_CGTAATGAGC_R1.trimmed.fastq -l 50 -h arch.html --trim_poly_g &> test.log
+
+# -l sequences min length must be 50
+# -h reporting option html selected
+# --trim_poly_g should automatically be in play as fastp does this default when it detects novaseq data (derives this info from the Machine ID in the fastq)
+
+# Note &> redirects the information on what it did into the file wgs.log (both stderror and stdout are written into this file)
+
+# Let's have a look at what files fastp produced:
+ls
+# You can see that it produced the two output files we specified and also an html and a json file which shows some quality information
+
+
+# for loop over all files
+File=$1
+
+for File in $(ls *_R*.fastq); do
+  echo Beginning batch of...
+  echo $File
+
+  # Run fastp
+  fastp --in1 $.fastq --out1 Arch349F_Arch806R-21_15_CGTAATGAGC_R1.trimmed.fastq -l 50 -h arch.html --trim_poly_g &> test.log
+
+  done
+
+  for File in *_R*.fastq; do
+  echo Preprocessing with fastp...
+  echo $File
+
+  #Run fastp
+  fastp --in1 $File '.fastq' --out1 $File'.trimmed.fastq' -l 50 -h $File'.html' --trim_poly_g &> $File'test.log'
+done
+
+  # Let's have a look at what files fastp produced:
+  ls
+
+
+# test loop on 10 files
+N=10;
+for i in "${/home/ubuntu/CO2_Project/Arch349F_Arch806R}"/*; do
+  [ "$((N--))" = 0 ] && break
+  cp -t "${/home/ubuntu/CO2_Project/Arch349F_Arch806R/test}" -- "$i"
+done
+
+cp Arch349F_Arch806R-21_15_CGTAATGAGC_R1.fastq test
+cp Arch349F_Arch806R-17_10_TCATATCGCG_R2.fastq test 
+cp Arch349F_Arch806R-17_11_TTGCAGATCA_R1.fastq test 
+cp Arch349F_Arch806R-17_11_TTGCAGATCA_R2.fastq test 
+cp Arch349F_Arch806R-17_12_GGATAGGATC_R1.fastq test 
+cp Arch349F_Arch806R-17_12_GGATAGGATC_R2.fastq test  

@@ -1,0 +1,1083 @@
+---
+title: "Soy Endophytes CO2 Full Code"
+author: "Connor Morozumi"
+date: "most recent edits `r format(Sys.time(), '%d %B %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 4
+    toc_float: true
+    number_sections: true
+    code_folding: hide
+    theme: cosmo
+    df_print: paged
+---
+
+# Load pkgs
+```{r}
+library(tidyverse)
+library(here)
+library(patchwork)
+library(cowplot)
+library(ggVennDiagram)
+library(ggpubr)
+
+library(vegan)
+library(phyloseq)
+library(SpiecEasi)
+library(NetCoMi)
+```
+
+
+# Read in data
+```{r}
+cleaned.files= here::here("datasets")
+net.loc= here("network_analysis")
+output.loc= here("outputs")
+
+#its1
+its1=read.csv(file= paste0(cleaned.files,"/cleaned.ASVs.ITS1.csv"), row.names = "X")
+
+its1.net= read_csv(file= paste0(cleaned.files,"/cleaned.ASVs.ITS1.csv"))
+#its2
+its2 = read.csv(file= paste0(cleaned.files, "/cleaned.ASVs.its2.csv"), row.names = "X")
+
+its2.net = read_csv(file= paste0(cleaned.files, "/cleaned.ASVs.its2.csv"))
+#bacteria
+bac= read.csv(file= paste0(cleaned.files,"/cleaned.ASVs.bacteria.csv"), row.names = "X")
+
+bac.net= read_csv(file= paste0(cleaned.files,"/cleaned.ASVs.bacteria.csv"))
+
+# two additional ones for higher level taxa summaries
+# bac.asvnos= read.csv(file= paste0(cleaned.files,"/cleaned.nothost.bacteria.asv_labeled_by_asv_no.csv"), row.names = "X")
+# 
+# tax dfs
+bac.tax= read.csv(file= paste0(cleaned.files,"/cleaned.nothost.bacteria.taxa.matched_to_asv_no.csv"), row.names = "X")
+
+its1.tax= read.csv(file= paste0(cleaned.files,"/cleaned.nothost.its1.taxa.matched_to_asv_no.csv"), row.names = "X")
+
+its2.tax= read.csv(file= paste0(cleaned.files,"/cleaned.nothost.its2.taxa.matched_to_asv_no.csv"), row.names = "X")
+
+#metadata
+meta= read.csv(file= paste0(cleaned.files, "/cleaned.meta.csv"), sep=",", header = T)
+
+```
+
+## Cleaning
+```{r}
+
+# change plot names for congruence with metadata and taxa dfs
+meta$site= sub("_", "-", meta$site)
+
+its1= its1 %>% 
+  rownames_to_column("site")
+
+its1$site= sub("_", "-", its1$site)
+
+its1 = its1 %>% 
+  column_to_rownames("site")
+
+meta.lite= meta %>% 
+  dplyr::select(site, CO2, plot, rep)
+
+# Clean up family names for more readable legend
+its1.tax$Family.legend= gsub(".*__","",its1.tax$Family)
+
+its2.tax$Family.legend= gsub(".*__","",its2.tax$Family)
+
+# sample ID
+# fix sample names
+names(its1.net)[1] ="Sample"
+
+its1.net$Sample= sub("_", "-", its1.net$Sample)
+
+names(its2.net)[1] ="Sample"
+
+names(bac.net)[1] ="Sample"
+```
+
+# SUMMARY STATS
+
+## Read counts
+```{r}
+# link meta to asv dfs too
+
+## its1
+read.counts.its1= its1 %>% 
+  rownames_to_column("site") %>% 
+  full_join(., meta.lite) %>% 
+  dplyr::select(-c(plot, rep)) %>% 
+  group_split(CO2)
+
+names(read.counts.its1)<- c("control", "elevated")
+
+read.counts.its1= map(read.counts.its1, dplyr::select,!CO2)
+
+read.counts.its1= map(read.counts.its1, column_to_rownames, "site")
+
+# filter out columns that are completely blank, these can be induced once the dataset is split by treatment
+no.zeros.its1=list()
+no.zeros.its1$control=read.counts.its1$control[colSums(read.counts.its1$control, na.rm = TRUE) > 0]
+no.zeros.its1$elevated=read.counts.its1$elevated[colSums(read.counts.its1$elevated, na.rm = TRUE) > 0]
+
+## bac
+read.counts.bac= bac %>% 
+  rownames_to_column("site") %>% 
+  full_join(., meta.lite) %>% 
+  dplyr::select(-c( plot, rep)) %>% 
+  group_split(CO2)
+
+names(read.counts.bac)<- c("control", "elevated")
+
+read.counts.bac= map(read.counts.bac, dplyr::select,!CO2)
+
+read.counts.bac= map(read.counts.bac, column_to_rownames, "site")
+
+
+no.zeros.bac=list()
+no.zeros.bac$control=read.counts.bac$control[colSums(read.counts.bac$control, na.rm = TRUE) > 0]
+no.zeros.bac$elevated=read.counts.bac$elevated[colSums(read.counts.bac$elevated, na.rm = TRUE) > 0]
+
+## its2
+read.counts.its2= its2 %>% 
+  rownames_to_column("site") %>% 
+  full_join(., meta.lite) %>% 
+  dplyr::select(-c(plot, rep)) %>% 
+  group_split(CO2)
+
+names(read.counts.its2)<- c("control", "elevated")
+
+read.counts.its2= map(read.counts.its2, dplyr::select,!CO2)
+
+read.counts.its2= map(read.counts.its2, column_to_rownames, "site")
+
+map(read.counts.its2, sum)
+
+no.zeros.its2=list()
+no.zeros.its2$control=read.counts.its2$control[colSums(read.counts.its2$control, na.rm = TRUE) > 0]
+no.zeros.its2$elevated=read.counts.its2$elevated[colSums(read.counts.its2$elevated, na.rm = TRUE) > 0]
+```
+
+```{r}
+## sum read counts across primers 
+
+its1.read.sums= map(no.zeros.its1, sum)
+its2.read.sums= map(no.zeros.its2, sum)
+bac.read.sums= map(no.zeros.bac, sum)
+
+its1.read.sums.tot= sum(unlist(its1.read.sums, recursive=FALSE))
+its2.read.sums.tot= sum(unlist(its2.read.sums, recursive=FALSE))
+bac.read.sums.tot= sum(unlist(bac.read.sums, recursive=FALSE))
+```
+
+# COMMUNITY METRICS
+## Richness and diversity
+
+Per sample
+```{r}
+#richness per sample
+bac$richness= rowSums(bac > 0)
+
+its1$richness= rowSums(its1 > 0)
+
+its2$richness= rowSums(its2 > 0)
+
+# shannon, simp
+
+bac$H = diversity(bac)
+its1$H = diversity(its1)
+its2$H = diversity(its2)
+
+bac$simp = diversity(bac, "simpson")
+its1$simp = diversity(its1, "simpson")
+its2$simp = diversity(its2, "simpson")
+```
+
+Per plot
+To calculate per plot richness we are going to have to do some extra massaging
+```{r}
+plot.rich.bac= bac %>% 
+  rownames_to_column("site")
+plot.rich.its1= its1 %>% 
+  rownames_to_column("site")
+plot.rich.its2= its2 %>% 
+  rownames_to_column("site")
+
+plot.rich.bac=full_join(plot.rich.bac, meta.lite)
+plot.rich.its1=full_join(plot.rich.its1, meta.lite)
+plot.rich.its2=full_join(plot.rich.its2, meta.lite)
+
+```
+
+Link to metadata
+```{r}
+# rownames to cols to link meta data in
+bac.div= bac %>% 
+  dplyr::select(richness, H, simp) %>% 
+  rownames_to_column("site")
+
+its1.div= its1 %>% 
+  dplyr::select(richness, H, simp) %>% 
+  rownames_to_column("site")
+
+its2.div= its2 %>% 
+  dplyr::select(richness, H, simp) %>% 
+  rownames_to_column("site")
+
+
+# link to meta
+bac.div= full_join(bac.div, meta.lite)
+
+its1.div= full_join(its1.div, meta.lite)
+
+its2.div= full_join(its2.div, meta.lite)
+```
+
+
+## Composition
+
+Transform data to proportions or apply Hellinger
+
+```{r}
+ITS1.asv.prop=prop.table(as.matrix(its1),1)
+
+ITS1.asv.hell <- decostand(its1, "hellinger")
+
+its2.asv.prop=prop.table(as.matrix(its2),1)
+
+its2.asv.hell <- decostand(its2, "hellinger")
+
+bacteria.asv.prop=prop.table(as.matrix(bac),1)
+
+bacteria.asv.hell <- decostand(bac, "hellinger")
+
+```
+
+
+Visualization
+
+NMDS for each primer on the transformed mat
+
+ITS1
+```{r}
+its1.mds <- metaMDS(ITS1.asv.prop)
+its1.mds.mds.3 <- metaMDS(ITS1.asv.prop, k=3)
+metaMDS(ITS1.asv.prop, k=3, previous.best = its1.mds.mds.3)
+
+#hellinger
+its1.mds.hell <- metaMDS(ITS1.asv.hell)
+its1.mds.3.hell <- metaMDS(ITS1.asv.hell, k=3)
+metaMDS(ITS1.asv.hell, k=3, previous.best = its1.mds.3.hell)
+```
+A three dim `k=3` solution is better
+
+```{r}
+nmds.its1= its1.mds.mds.3 ## CHANGE ME
+#site scores
+data.scores.its1 <- as.data.frame(scores(nmds.its1)$sites)  #Using the scores function from vegan to extract the site scores and convert to a data.frame
+data.scores.its1$site <- rownames(data.scores.its1)  # create a column of site names, from the rownames of data.scores
+data.scores.its1=full_join(data.scores.its1, meta)
+
+#species scores
+species.scores.its1 <- as.data.frame(scores(nmds.its1, "species"))  #Using the scores function from vegan to extract the species scores and convert to a data.frame
+species.scores.its1$species <- rownames(species.scores.its1)  # create a column of species, from the rownames of species.scores
+```
+
+```{r}
+its1.A= ggplot(data= data.scores.its1,aes(x=NMDS1,y=NMDS2,shape= CO2,colour=CO2)) + 
+  #geom_text(data=species.scores.its1,aes(x=NMDS1,y=NMDS2,label=species),alpha=0.5) +  # add the species labels
+  geom_point(size=3) + # add the point markers
+  #geom_text(data=data.scores.its1,aes(x=NMDS1,y=NMDS2,label=site),size=6,vjust=0) +  # add the site labels
+  scale_colour_manual(values=c("Elevated" = "red", "Control" = "blue")) +
+  coord_equal() +
+  theme_bw()+
+  guides(color=guide_legend(expression(paste("CO"["2"]))), shape = FALSE)
+
+if("NMDS3" %in% colnames(data.scores.its1) ==TRUE){
+its1.B=ggplot(data= data.scores.its1,aes(x=NMDS1,y=NMDS3,shape= CO2,colour=CO2)) + 
+  #geom_text(data=species.scores.its1,aes(x=NMDS1,y=NMDS2,label=species),alpha=0.5) +  # add the species labels
+  geom_point(size=3) + # add the point markers
+  #geom_text(data=data.scores.its1,aes(x=NMDS1,y=NMDS2,label=site),size=6,vjust=0) +  # add the site labels
+  scale_colour_manual(values=c("Elevated" = "red", "Control" = "blue")) +
+  coord_equal() +
+  theme_bw()+
+  guides(color=guide_legend(expression(paste("CO"["2"]))), shape = FALSE)
+}
+
+#axis 2 vs 3
+if("NMDS3" %in% colnames(data.scores.its1) ==TRUE){
+its1.C=ggplot(data= data.scores.its1,aes(x=NMDS2,y=NMDS3,shape= CO2,colour=CO2)) + 
+  #geom_text(data=species.scores.its1,aes(x=NMDS1,y=NMDS2,label=species),alpha=0.5) +  # add the species labels
+  geom_point(size=3) + # add the point markers
+  #geom_text(data=data.scores.its1,aes(x=NMDS1,y=NMDS2,label=site),size=6,vjust=0) +  # add the site labels
+  scale_colour_manual(values=c("Elevated" = "red", "Control" = "blue")) +
+  coord_equal() +
+  theme_bw()+
+  guides(color=guide_legend(expression(paste("CO"["2"]))), shape = FALSE)
+}
+
+its1.all= its1.A + its1.B + its1.C
+```
+
+
+its2
+
+```{r}
+
+its2.mds.hell <- metaMDS(its2.asv.hell)
+its2.mds.hell.3 <- metaMDS(its2.asv.hell, k=3)
+metaMDS(its2.asv.hell, k=3, previous.best = its2.mds.hell.3)
+
+
+its2.mds.prop <- metaMDS(its2.asv.prop)
+its2.mds.prop.3 <- metaMDS(its2.asv.prop, k=3)
+nmds.its2=metaMDS(its2.asv.prop, k=3, previous.best = its2.mds.prop.3)
+
+```
+
+```{r}
+
+#site scores
+data.scores.its2 <- as.data.frame(scores(nmds.its2)$sites)  #Using the scores function from vegan to extract the site scores and convert to a data.frame
+data.scores.its2$site <- rownames(data.scores.its2)  # create a column of site names, from the rownames of data.scores
+
+data.scores.its2=full_join(data.scores.its2, meta)
+
+#species scores
+species.scores.its2 <- as.data.frame(scores(nmds.its2, "species"))  #Using the scores function from vegan to extract the species scores and convert to a data.frame
+species.scores.its2$species <- rownames(species.scores.its2)  # create a column of species, from the rownames of species.scores
+```
+
+```{r}
+its2.A=ggplot(data= data.scores.its2,aes(x=NMDS1,y=NMDS2,shape= CO2,colour=CO2)) + 
+  #geom_text(data=species.scores.its2,aes(x=NMDS1,y=NMDS2,label=species),alpha=0.5) +  # add the species labels
+  geom_point(size=3) + # add the point markers
+  #geom_text(data=data.scores.its2,aes(x=NMDS1,y=NMDS2,label=site),size=6,vjust=0) +  # add the site labels
+  scale_colour_manual(values=c("Elevated" = "red", "Control" = "blue")) +
+  coord_equal() +
+  theme_bw()+
+  guides(color=guide_legend(expression(paste("CO"["2"]))), shape = FALSE)
+
+#axis 1 v 3
+
+if("NMDS3" %in% colnames(data.scores.its2) ==TRUE){
+its2.B=ggplot(data= data.scores.its2,aes(x=NMDS1,y=NMDS3,shape= CO2,colour=CO2)) + 
+  #geom_text(data=species.scores.its2,aes(x=NMDS1,y=NMDS2,label=species),alpha=0.5) +  # add the species labels
+  geom_point(size=3) + # add the point markers
+  #geom_text(data=data.scores.its2,aes(x=NMDS1,y=NMDS2,label=site),size=6,vjust=0) +  # add the site labels
+  scale_colour_manual(values=c("Elevated" = "red", "Control" = "blue")) +
+  coord_equal() +
+  theme_bw()+
+  guides(color=guide_legend(expression(paste("CO"["2"]))), shape = FALSE)
+}
+
+#axis 2 vs 3
+if("NMDS3" %in% colnames(data.scores.its2) ==TRUE){
+its2.C=ggplot(data= data.scores.its2,aes(x=NMDS2,y=NMDS3,shape= CO2,colour=CO2)) + 
+  #geom_text(data=species.scores.its2,aes(x=NMDS1,y=NMDS2,label=species),alpha=0.5) +  # add the species labels
+  geom_point(size=3) + # add the point markers
+  #geom_text(data=data.scores.its2,aes(x=NMDS1,y=NMDS2,label=site),size=6,vjust=0) +  # add the site labels
+  scale_colour_manual(values=c("Elevated" = "red", "Control" = "blue")) +
+  coord_equal() +
+  theme_bw()+
+  guides(color=guide_legend(expression(paste("CO"["2"]))), shape = FALSE)
+}
+
+its2.all= its2.A + its2.B + its2.C
+
+```
+
+Bacteria
+```{r}
+
+# NMDS
+
+bacteria.mds.hell <- metaMDS(bacteria.asv.hell)
+bacteria.mds.hell.3 <- metaMDS(bacteria.asv.hell, k=3)
+metaMDS(bacteria.asv.hell, k=3, previous.best = bacteria.mds.hell.3)
+
+
+bacteria.mds.prop <- metaMDS(bacteria.asv.prop)
+bacteria.mds.prop.3 <- metaMDS(bacteria.asv.prop, k=3)
+nmds.bac=metaMDS(bacteria.asv.hell, k=3, previous.best = bacteria.mds.hell.3)
+  # no convergence k=2
+```
+
+```{r}
+
+#site scores
+data.scores.bac <- as.data.frame(scores(nmds.bac)$sites)  #Using the scores function from vegan to extract the site scores and convert to a data.frame
+data.scores.bac$site <- rownames(data.scores.bac)  # create a column of site names, from the rownames of data.scores
+
+data.scores.bac=full_join(data.scores.bac, meta)
+
+#species scores
+species.scores.bac <- as.data.frame(scores(nmds.bac, "species"))  #Using the scores function from vegan to extract the species scores and convert to a data.frame
+species.scores.bac$species <- rownames(species.scores.bac)  # create a column of species, from the rownames of species.scores
+```
+
+```{r}
+bac.a=ggplot(data= data.scores.bac,aes(x=NMDS1,y=NMDS2,shape= CO2,colour=CO2)) + 
+  #geom_text(data=species.scores.bac,aes(x=NMDS1,y=NMDS2,label=species),alpha=0.5) +  # add the species labels
+  geom_point(size=3) + # add the point markers
+  #geom_text(data=data.scores.bac,aes(x=NMDS1,y=NMDS2,label=site),size=6,vjust=0) +  # add the site labels
+  scale_colour_manual(values=c("Elevated" = "red", "Control" = "blue"), labels= c("Elevated", "Ambient")) +
+  coord_equal() +
+  theme_bw()+
+  guides(color=guide_legend(expression(paste("CO"["2"]))), shape = FALSE)
+
+#axis 1 v 3
+
+if("NMDS3" %in% colnames(data.scores.bac) ==TRUE){
+bac.b=ggplot(data= data.scores.bac,aes(x=NMDS1,y=NMDS3,shape= CO2,colour=CO2)) + 
+  #geom_text(data=species.scores.bac,aes(x=NMDS1,y=NMDS2,label=species),alpha=0.5) +  # add the species labels
+  geom_point(size=3) + # add the point markers
+  #geom_text(data=data.scores.bac,aes(x=NMDS1,y=NMDS2,label=site),size=6,vjust=0) +  # add the site labels
+  scale_colour_manual(values=c("Elevated" = "red", "Control" = "blue")) +
+  coord_equal() +
+  theme_bw()+
+  guides(color=guide_legend(expression(paste("CO"["2"]))), shape = FALSE)
+}
+
+#axis 2 vs 3
+if("NMDS3" %in% colnames(data.scores.bac) ==TRUE){
+bac.c= ggplot(data= data.scores.bac,aes(x=NMDS2,y=NMDS3,shape= CO2,colour=CO2)) + 
+  #geom_text(data=species.scores.bac,aes(x=NMDS1,y=NMDS2,label=species),alpha=0.5) +  # add the species labels
+  geom_point(size=3) + # add the point markers
+  #geom_text(data=data.scores.bac,aes(x=NMDS1,y=NMDS2,label=site),size=6,vjust=0) +  # add the site labels
+  scale_colour_manual(values=c("Elevated" = "red", "Control" = "blue")) +
+  coord_equal() +
+  theme_bw()+
+  guides(color=guide_legend(expression(paste("CO"["2"]))), shape = FALSE)
+}
+
+bac.all= bac.a + bac.b + bac.c
+
+```
+
+Fig 1: multiplot fungi and bacterial
+
+```{r fig.width= 14}
+its2.A.noleg= its2.A + theme(legend.position = "none") + geom_label(aes(x = 0.3, y = 1.5, label = "Fungal composition"), inherit.aes = F)
+
+bac.a.bot= bac.a + theme(legend.position = "bottom") + geom_label(aes(x = -.2, y = 1, label = "Bacterial composition"), inherit.aes = F) + expand_limits(x = 0.7, y= 1.2)
+
+fig1.vertical= its2.A.noleg / bac.a.bot 
+
+ggsave(paste0(output.loc, "/fig.1.pdf"), fig1.vertical, width = 6)
+ggsave(paste0(output.loc, "/fig.1.jpg"), fig1.vertical, width = 6)
+
+```
+
+### Stats
+
+ITS1
+```{r}
+# plot 20_9 doesn't appear to be in the ASV tab and is blank in the meta tab
+meta.fin=meta %>% 
+  filter(site !="20_9")
+adonmod=adonis2(ITS1.asv.hell ~ CO2, data = meta.fin)
+
+
+# check for dispersion
+  #use data.scores df to get corresponding treatment assignments in proper order
+treatment= data.scores.its1 %>% 
+  filter(site!= "20_9")
+
+dis.its1= vegdist(ITS1.asv.hell)
+mod <- betadisper(dis.its1, treatment$CO2)
+anova(mod)
+(mod.HSD <- TukeyHSD(mod))
+plot(mod.HSD)
+```
+
+its2
+```{r}
+adonmod_ITS2=adonis2(its2.asv.prop ~ CO2, data = meta.fin)
+
+# check for dispersion
+  #use data.scores df to get corresponding treatment assignments in proper order
+treatment= data.scores.its2 %>% 
+  filter(site!= "20_9")
+
+dis= vegdist(its2.asv.prop)
+mod <- betadisper(dis, treatment$CO2)
+anova(mod)
+(mod.HSD <- TukeyHSD(mod))
+plot(mod.HSD)
+```
+
+Bacteria
+
+```{r}
+
+# adonis
+adonmod_16s=adonis2(bacteria.asv.hell ~ CO2, data = meta.fin)
+
+# check for dispersion
+  #use data.scores df to get corresponding treatment assignments in proper order
+treatment= data.scores.bac %>% 
+  filter(site!= "20-9")
+
+dis= vegdist(bacteria.asv.hell)
+mod <- betadisper(dis, treatment$CO2)
+anova(mod)
+(mod.HSD <- TukeyHSD(mod))
+plot(mod.HSD)
+```
+
+# NETWORKS
+
+- Filtering low abundant ASVs, maintaining ASVs with more than 10 read counts
+
+Remove low abundant ASVs
+```{r}
+
+# ITS1
+ its1.net= its1.net %>% column_to_rownames("Sample")
+its1.sub=its1.net[ ,colSums(its1.net[,1:ncol(its1.net)]) >= 10]
+paste("filtering low abundant ASVs removes", ncol(its1.net)- ncol(its1.sub), "ASVs")
+
+# its2
+its2.net= its2.net %>% column_to_rownames("Sample")
+its2.sub=its2.net[ ,colSums(its2.net[,1:ncol(its2.net)]) >= 10]
+paste("filtering low abundant ASVs removes", ncol(its2.net)- ncol(its2.sub), "ASVs")
+
+# 16s
+bac.net= bac.net %>% column_to_rownames("Sample")
+bac.sub=bac.net[ ,colSums(bac.net[,2:ncol(bac.net)]) >= 10]
+paste("filtering low abundant ASVs removes", ncol(bac.net)- ncol(bac.sub), "ASVs")
+
+```
+
+Filter all.tax by the filtered asv tables
+```{r}
+its1.sub.vec= names(its1.sub)
+
+its1.tax.sub= its1.tax %>% 
+  filter(uniqueID %in% its1.sub.vec)
+
+its2.sub.vec= names(its2.sub)
+
+its2.tax.sub= its2.tax %>% 
+  filter(uniqueID %in% its2.sub.vec)
+
+bac.sub.vec= names(bac.sub)
+
+bac.tax.sub= bac.tax %>% 
+  filter(uniqueID %in% bac.sub.vec)
+```
+
+Split Elevated CO~2~ and Ambient
+
+Combine 3 asv dfs into a list item
+```{r}
+# all.asvs= list(ITS1.asv.filter, its2.asv.filter, bacteria.asv.tab.filter) #old
+all.asvs= list(its1.sub, its2.sub, bac.sub)
+names(all.asvs)<- c("its1", "its2", "16s")
+
+# all.tax= list(its1.tax, its2.tax, bac.tax) #old
+all.tax= list(its1.tax.sub, its2.tax.sub, bac.tax.sub)
+
+names(all.tax)<- c("its1", "its2", "16s")
+```
+
+```{r}
+# make a col named sample to link metadata in
+all.asvs=all.asvs %>% 
+map(rownames_to_column, "Sample")
+
+# add metadata 
+  
+meta$site= sub("_", "-", meta$site)
+
+meta.lite= meta %>% 
+  select(site, CO2) %>% 
+  rename(Sample= site)
+
+all.asvs= all.asvs %>% 
+  map(full_join, meta.lite) %>% # add metadata to asv data so we know which Samples are Elevated and which are Control
+  map(relocate, "CO2", .after= "Sample") # move co2 treatment to start of df for each so we can see it
+
+Elevated=all.asvs %>% 
+  map(filter, CO2 == "Elevated") %>% 
+  map(select, -c(CO2)) %>% 
+  map( column_to_rownames, "Sample")
+
+# Elevated[1] # check to see if that worked
+Elevated[3]
+
+Ambient=all.asvs %>% 
+  map(filter, CO2 == "Control") %>% 
+  map(select, -c(CO2)) %>% 
+  map( column_to_rownames, "Sample")
+
+# dumb way to do this, def better way to go about it. Stitch back together as a list
+control.amb= c(Elevated, Ambient)
+names(control.amb)<- c("elevated.its1", "elevated.its2", "elevated.16s", "amb.its1", "amb.its2", "amb.16s")
+```
+
+Make phyloseq objects of these networks
+```{r}
+# make phyloseq otu tables 
+otu= map(control.amb, otu_table, taxa_are_rows = F)
+
+all.tax= all.tax %>% 
+  map(.,~rownames_to_column(.x, var="seq"))
+
+all.tax= map(all.tax, column_to_rownames,var= "uniqueID")
+
+all.tax=map(all.tax, select, -"seq")
+
+
+# duplicated these into elevated and ambient lists
+Ambient.tax=all.tax 
+Elevated.tax=all.tax 
+
+# dumb way to do this, def better way to go about it. Stitch back together as a list
+control.amb.tax= c(Elevated.tax, Ambient.tax)
+names(control.amb.tax)<- c("elevated.its1", "elevated.its2", "elevated.16s", "amb.its1", "amb.its2", "amb.16s")
+
+
+## make tax object
+
+control.amb.tax= map(control.amb.tax, as.matrix)
+
+TAX = map(control.amb.tax, tax_table)
+
+# combine into phyloseq obj
+phylo.all= map2(otu, TAX, phyloseq)
+```
+
+## Create networks via SpeicEasi
+
+From phyloseq obj
+```{r}
+mapply(assign, names(phylo.all), phylo.all, MoreArgs=list(envir = globalenv()))
+```
+
+```{r}
+#its1
+# gen.se.elevated.its1 <- spiec.easi(elevated.its1, method='mb', lambda.min.ratio=1e-2, nlambda=100, pulsar.params=list(rep.num=50))
+# 
+# ## check stability 
+# getStability(gen.se.elevated.its1) #0.045 that seems good enough
+# 
+# # 
+# gen.se.amb.its1 <- spiec.easi(amb.its1, method='mb', lambda.min.ratio=1e-2, nlambda=100, pulsar.params=list(rep.num=50))
+# 
+# ## check stability 
+# getStability(gen.se.amb.its1) #0.0426
+# 
+# #its2 
+# pargs2 <- list(rep.num=50, seed=10010, ncores=4)
+# 
+# se.elevated.its2.bstars <- spiec.easi(elevated.its2, method='mb', lambda.min.ratio=1e-1, nlambda=100,
+#                sel.criterion='bstars', pulsar.select=TRUE, pulsar.params=pargs2)
+# 
+# getStability(se.elevated.its2.bstars)  # 
+# 
+# save(se.elevated.its2.bstars, file = paste0(net.loc, "/spiec_nets_its2_ele.bstars.RData"))
+
+# se.amb.its2.bstars <- spiec.easi(elevated.its2, method='mb', lambda.min.ratio=1e-1, nlambda=100,
+#                sel.criterion='bstars', pulsar.select=TRUE, pulsar.params=pargs2)
+# 
+# getStability(se.amb.its2.bstars)  # 
+# 
+
+
+# bac
+# gen.se.elevated.bac <- spiec.easi(elevated.16s, method='mb', lambda.min.ratio=1e-2, nlambda=100, pulsar.params=list(rep.num=50))
+
+# changing lambda min ration because stability is kinda low. Alternative could be to raise nlambda but 100 was what the troublehooting guide recommended on the high side
+
+# gen.se.elevated.bac <- spiec.easi(elevated.16s, method='mb', lambda.min.ratio=1e-1, nlambda=100, pulsar.params=list(rep.num=50))
+# 
+# getStability(gen.se.elevated.bac) #  0.0462359 better!
+# gen.se.elevated.bac$select$stars$summary
+# 
+# # 
+# gen.se.amb.bac <- spiec.easi(amb.16s, method='mb', lambda.min.ratio=1e-1, nlambda=100, pulsar.params=list(rep.num=50))
+# 
+# getStability(gen.se.amb.bac) # 0.0475
+
+```
+
+## Save networks / work from a saved copy if necessary
+```{r}
+#save(se.elevated.bac, se.amb.bac, file = paste0(net.loc, "/spiec_nets_16s.RData"))
+
+#save(se.elevated.its1, se.amb.its1, file = paste0(net.loc, "spiec_nets_ITS1.RData"))
+
+#save(se.amb.its2.bstars, se.elevated.its2.bstars, file = paste0(net.loc, "/spiec_nets_its2.RData"))
+
+
+if(!"se.elevated.its1" %in% names(globalenv()))
+{load(paste0(net.loc,"/spiec_nets_ITS1.RData"))}
+
+if(!"se.elevated.bac" %in% names(globalenv()))
+{load(paste0(net.loc,"/spiec_nets_16s.RData"))}
+
+if(!"se.elevated.its2.bstars" %in% names(globalenv()))
+{load(paste0(net.loc,"/spiec_nets_its2.RData"))}
+
+```
+
+
+## Plot networks
+
+ITS1
+
+Elevated 
+```{r}
+# plot within phyloseq framework
+
+its1.ele.mb <- adj2igraph(getRefit(se.elevated.its1),  vertex.attr=list(name=taxa_names(phylo.all$elevated.its1)))
+
+p.its1.el= plot_network(its1.ele.mb, phylo.all$elevated.its1, type='taxa', color="Family.legend", label= NULL, point_size = 0.5, alpha= 0.5, line_alpha = 0.4, title = expression(paste("Elevated ", CO[2])))
+
+# can do further ggplot functions 
+p.its1.el= p.its1.el + 
+  theme(legend.position = "none")
+```
+
+Ambient
+```{r}
+its1.amb.mb <- adj2igraph(getRefit(se.amb.its1),  vertex.attr=list(name=taxa_names(phylo.all$amb.its1)))
+
+p.its1.amb= plot_network(its1.amb.mb, phylo.all$amb.its1, type='taxa', color="Family.legend", label= NULL, point_size = 0.5, alpha= 0.5, line_alpha = 0.4, title = expression(paste("Ambient ", CO[2])))
+
+p.its1.amb.2= p.its1.amb + 
+  guides(color=guide_legend(ncol=2)) +
+  theme(legend.position = "none") 
+
+test= p.its1.amb + 
+ labs(color = "") +
+  theme_void(base_size = 10) + guides(color = guide_legend(override.aes = list(size=3)))
+```
+
+```{r fig.width=15, fig.height=10}
+# Extract the legend. Returns a gtable
+leg <- ggpubr::get_legend(test)
+
+# Convert to a ggplot and print
+leg.plot=as_ggplot(leg) 
+```
+
+Make a multiplot
+```{r}
+p1= plot_grid(p.its1.amb.2, p.its1.el, labels = c('A', 'B'), hjust = 0.5)
+
+p1.final= plot_grid(p1, NULL, leg.plot, ncol=1, align="v", rel_heights = c(1, 0, 1))
+
+ggsave(paste0(output.loc,"/figureS3.jpg"),p1.final, height= 10)
+ggsave(paste0(output.loc,"/figureS3.pdf"),p1.final, height= 10)
+```
+
+ITS2
+
+```{r}
+# plot within phyloseq framework
+
+el.its2.mb <- adj2igraph(getRefit(se.elevated.its2.bstars),  vertex.attr=list(name=taxa_names(phylo.all$elevated.its2)))
+
+p.its2.el= plot_network(el.its2.mb, phylo.all$elevated.its2, type='taxa', color="Family.legend", label= NULL, point_size = 0.5, alpha= 0.5, line_alpha = 0.4, title = expression(paste("Elevated ", CO[2])))
+
+# can do further ggplot functions 
+p.its2.el= p.its2.el + 
+  theme(legend.position = "none")
+```
+
+```{r}
+am.its2.mb <- adj2igraph(getRefit(se.amb.its2.bstars),  vertex.attr=list(name=taxa_names(phylo.all$amb.its2)))
+
+p.its2.am= plot_network(am.its2.mb, phylo.all$amb.its2, type='taxa', color="Family.legend", label= NULL, point_size = 0.5, alpha= 0.5, line_alpha = 0.4, title = expression(paste("Ambient ", CO[2])))
+
+# can do further ggplot functions 
+p.its2.amb.2= p.its2.am + 
+  guides(color=guide_legend(ncol=2)) +
+  theme(legend.position = "none") 
+
+#for the legend
+leg.its2= p.its2.am + 
+ labs(color = "") +
+  theme_void(base_size = 10) + guides(color = guide_legend(override.aes = list(size=3)))
+```
+
+```{r fig.width=15, fig.height=10}
+# Extract the legend. Returns a gtable
+leg.its2 <- ggpubr::get_legend(leg.its2)
+
+# Convert to a ggplot and print
+leg.its2.plot=ggpubr::as_ggplot(leg.its2) 
+```
+
+Make a multiplot
+```{r}
+p1.its2= plot_grid(p.its2.amb.2, p.its2.el, labels = c('A', 'B'), hjust = 0.5)
+
+p1.its2.final= plot_grid(p1.its2, NULL, leg.its2.plot, ncol=1, align="v", rel_heights = c(1, 0, 1))
+
+ggsave(paste0(output.loc,"/figure2.jpg"),p1.its2.final, height= 10)
+ggsave(paste0(output.loc,"/figure2.pdf"),p1.its2.final, height= 10)
+
+```
+
+16s
+```{r}
+#bac
+bac.el.mb <- adj2igraph(getRefit(se.elevated.bac),  vertex.attr=list(name=taxa_names(phylo.all$elevated.16s)))
+
+p.16s.el= plot_network(bac.el.mb, phylo.all$elevated.16s, type='taxa', color="Genus", point_size = 1, alpha= 0.5, line_alpha = 0.4, label= NULL, title = expression(paste("Elevated ", CO[2])))
+
+p.16s.el= p.16s.el + theme(legend.position = "none")
+
+```
+
+
+``` {r}
+bac.amb.mb <- adj2igraph(getRefit(se.amb.bac),  vertex.attr=list(name=taxa_names(phylo.all$amb.16s)))
+
+p.16s.amb= plot_network(bac.amb.mb, phylo.all$amb.16s, type='taxa', color="Genus", point_size = 1, alpha= 0.5, line_alpha = 0.4, label= NULL, title = expression(paste("Ambient ", CO[2])))
+
+p.16s.amb= p.16s.amb + theme(legend.position = "none")
+
+
+#make legend edits and save to additional plot
+bac.leg= p.16s.amb + 
+ labs(color = "") +
+  theme_void(base_size = 10) + guides(color = guide_legend(override.aes = list(size=3)))
+```
+
+
+```{r fig.width=15, fig.height=10}
+# Extract the legend. Returns a gtable
+bac.leg.extract <- ggpubr::get_legend(bac.leg)
+
+# Convert to a ggplot and print
+bac.leg.plot=as_ggplot(bac.leg.extract) 
+```
+
+Make a multiplot
+```{r}
+bac1= plot_grid(p.16s.amb, p.16s.el, labels = c('A', 'B'), hjust = 0.5)
+
+bac1.final= plot_grid(bac1, NULL, bac.leg.plot, ncol=1, align="v", rel_heights = c(1, 0, 1))
+
+ggsave(paste0(output.loc,"/figure3.jpg"), bac1.final, height= 10)
+```
+
+
+## Compare networks
+
+Start with nets already made from `spieceasi`
+
+```{r}
+# Make association matrix
+# its1
+assoMat.its1.el <- as.matrix(SpiecEasi::symBeta(getOptBeta(se.elevated.its1)))
+assoMat.its1.am <- as.matrix(SpiecEasi::symBeta(getOptBeta(se.amb.its1)))
+
+rownames(assoMat.its1.el) <- colnames(assoMat.its1.el) <- colnames(se.elevated.its1$est$data)
+rownames(assoMat.its1.am) <- colnames(assoMat.its1.am) <- colnames(se.amb.its1$est$data)
+
+
+net_its1_comp <- net_asso <- netConstruct(data = assoMat.its1.el, data2= assoMat.its1.am,
+                         dataType = "condDependence",
+                         sparsMethod = "none",
+                         verbose = 0)
+
+# its2
+assoMat.its2.el <- as.matrix(SpiecEasi::symBeta(getOptBeta(se.elevated.its2.bstars)))
+assoMat.its2.am <- as.matrix(SpiecEasi::symBeta(getOptBeta(se.amb.its2.bstars)))
+
+rownames(assoMat.its2.el) <- colnames(assoMat.its2.el) <- colnames(se.elevated.its2.bstars$est$data)
+rownames(assoMat.its2.am) <- colnames(assoMat.its2.am) <- colnames(se.amb.its2.bstars$est$data)
+
+
+net_its2_comp <- net_asso <- netConstruct(data = assoMat.its2.el, data2= assoMat.its2.am,
+                         dataType = "condDependence",
+                         sparsMethod = "none",
+                         verbose = 0)
+# 16s
+assoMat.bac.el <- as.matrix(SpiecEasi::symBeta(getOptBeta(se.elevated.bac)))
+assoMat.bac.am <- as.matrix(SpiecEasi::symBeta(getOptBeta(se.amb.bac)))
+
+rownames(assoMat.bac.el) <- colnames(assoMat.bac.el) <- colnames(se.elevated.bac$est$data)
+rownames(assoMat.bac.am) <- colnames(assoMat.bac.am) <- colnames(se.amb.bac$est$data)
+
+
+net_16s_comp <- net_asso <- netConstruct(data = assoMat.bac.el, data2= assoMat.bac.am,
+                         dataType = "condDependence",
+                         sparsMethod = "none",
+                         verbose = 0)
+```
+
+## Analyze network properties
+
+Determine network properties for objects of class microNet
+```{r}
+# Using eigenvector centrality as hub score
+
+#its1
+comp_its1_props1 <- netAnalyze(net_its1_comp, clustMethod = "cluster_fast_greedy", hubPar = "eigenvector")
+
+plot(comp_its1_props1, groupNames = c("Elevated", "Ambient"))
+
+outputits1.comp.props= summary(comp_its1_props1, groupNames = c("Elevated", "Ambient"))
+
+#its2
+comp_its2_props1 <- netAnalyze(net_its2_comp, clustMethod = "cluster_fast_greedy", hubPar = "eigenvector")
+
+plot(comp_its2_props1, groupNames = c("Elevated", "Ambient"))
+
+outputits2.comp.props= summary(comp_its2_props1, groupNames = c("Elevated", "Ambient"))
+
+#16s
+comp_16s_props1 <- netAnalyze(net_16s_comp, clustMethod = "cluster_fast_greedy", hubPar = "eigenvector")
+
+plot(comp_16s_props1, groupNames = c("Elevated", "Ambient"))
+
+output16s.comp.props= summary(comp_16s_props1, groupNames = c("Elevated", "Ambient"))
+```
+
+
+## Quantitative network comparison
+```{r}
+#its1
+comp_its1 <- netCompare(comp_its1_props1, 
+                          permTest = FALSE, 
+                          verbose = FALSE,
+                          seed = 123456)
+
+sum.comp.its1=summary(comp_its1, 
+        groupNames = c("Elevated CO2", "Ambient CO2"),
+        showCentr = c("degree", "between", "closeness"), 
+        numbNodes = 5)
+
+#its2
+comp_its2 <- netCompare(comp_its2_props1, 
+                          permTest = FALSE, 
+                          verbose = FALSE,
+                          seed = 123456)
+
+sum.comp.its2=summary(comp_its2, 
+        groupNames = c("Elevated CO2", "Ambient CO2"),
+        showCentr = c("degree", "between", "closeness"), 
+        numbNodes = 5)
+
+#16s
+comp_bac <- netCompare(comp_16s_props1, 
+                          permTest = FALSE, 
+                          verbose = FALSE,
+                          seed = 123456)
+
+sum.comp.bac=summary(comp_bac, 
+        groupNames = c("Elevated CO2", "Ambient CO2"),
+        showCentr = c("degree", "between", "closeness"), 
+        numbNodes = 5)
+
+```
+
+## Make / output tables of relevant metrics
+```{r}
+#hubs
+hubs.bac= output16s.comp.props$hubs
+hubs.bac$dataset <- "16s"
+
+hubs.its1=outputits1.comp.props$hubs
+hubs.its1$dataset <- "ITS1"
+
+hubs.its2=outputits2.comp.props$hubs
+hubs.its2$dataset <- "ITS2"
+
+hubs= rbind(hubs.bac, hubs.its1)
+
+hubs= rbind(hubs, hubs.its2)
+
+write.csv(hubs, paste0(output.loc, "/hub.taxa.all.csv"))
+
+# netcomp
+netmets= sum.comp.its1$propdiffs[1:5,]
+netmets$dataset <- "ITS1"
+netmets=netmets %>% rownames_to_column("metric")
+
+netmets.its2= sum.comp.its2$propdiffs[1:5,]
+netmets.its2$dataset <- "ITS2"
+netmets.its2=netmets.its2 %>% rownames_to_column("metric")
+
+netmets.bac=sum.comp.bac$propdiffs[1:5,]
+netmets.bac$dataset <- "16s"
+netmets.bac= netmets.bac %>% rownames_to_column("metric")
+
+netmets= rbind(netmets, netmets.bac)
+
+netmets= rbind(netmets, netmets.its2)
+
+
+colnames(netmets) <- c("metric", "Elevated CO2" , "Ambient CO2" ,"difference", "dataset")
+
+write.csv(netmets, paste0(output.loc, "/net.metrics.all.csv"))
+
+```
+
+
+# SUPPLEMENTAL
+
+Compare ITS primers at the Genus and Family levels
+
+```{r}
+its1.gen.unique=  unique(its1.tax$Genus)
+its2.gen.unique=  unique(its2.tax$Genus)
+
+
+its1.fam.unique=  unique(its1.tax$Family)
+its2.fam.unique=  unique(its2.tax$Family)
+
+#remove NA
+its1.gen.unique= its1.gen.unique[!is.na(its1.gen.unique)]
+its2.gen.unique= its2.gen.unique[!is.na(its2.gen.unique)]
+
+its1.fam.unique= its1.fam.unique[!is.na(its1.fam.unique)]
+its2.fam.unique= its2.fam.unique[!is.na(its2.fam.unique)]
+
+
+# look at what is not shared
+setdiff(its1.gen.unique, its2.gen.unique) #32 genera found in its1 not in its2
+setdiff(its2.gen.unique, its1.gen.unique) #33 general found in its2 not in its1
+
+
+setdiff(its1.fam.unique, its2.fam.unique) #15 families found in its1 not in its2
+setdiff(its2.fam.unique, its1.fam.unique) #20 families found in its2 not in its1
+
+
+# overlap
+overlap.genus=intersect(its1.gen.unique,its2.gen.unique)
+overlap.fam=intersect(its1.fam.unique,its2.fam.unique)
+
+#proportion of taxa overlap
+length(overlap.genus)/(length(overlap.genus) + length(setdiff(its1.gen.unique, its2.gen.unique))+ length(
+setdiff(its2.gen.unique, its1.gen.unique))) # 47.81% taxa are shared at the genus level
+
+length(overlap.fam)/(length(overlap.fam) + length(setdiff(its1.fam.unique, its2.fam.unique))+ length(
+setdiff(its2.fam.unique, its1.fam.unique))) # 55.70% taxa are shared at the fam level
+```
+
+Venn diagrams
+
+```{r, fig.width= 8}
+
+fam.list=list(ITS1= its1.fam.unique, ITS2= its2.fam.unique)
+genera.list=list(ITS1= its1.gen.unique, ITS2= its2.gen.unique)
+
+fam.venn=ggVennDiagram(fam.list) + 
+  scale_fill_gradient(low="grey90",high = "red") +
+  labs(title = "Taxa overlap by family")
+
+genera.venn=ggVennDiagram(genera.list,) + scale_fill_gradient(low="grey90",high = "red") +
+  labs(title = "Taxa overlap by genera")
+
+ggsave(paste0(output.loc,"/figureS1.fam.venn.pdf"), fam.venn)
+ggsave(paste0(output.loc,"/figureS2.genera.venn.pdf"), genera.venn)
+
+```
