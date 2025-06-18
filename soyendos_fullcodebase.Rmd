@@ -927,11 +927,21 @@ plot(comp_its1_props1, groupNames = c("Elevated", "Ambient"))
 outputits1.comp.props= summary(comp_its1_props1, groupNames = c("Elevated", "Ambient"))
 
 #its2
+
 comp_its2_props1 <- netAnalyze(net_its2_comp, clustMethod = "cluster_fast_greedy", hubPar = "eigenvector")
 
 plot(comp_its2_props1, groupNames = c("Elevated", "Ambient"))
 
 outputits2.comp.props= summary(comp_its2_props1, groupNames = c("Elevated", "Ambient"))
+
+## hub pars: "degree", "betweenness", "closeness"
+# comp_its2_props1.hubpars <- netAnalyze(net_its2_comp, clustMethod = "cluster_fast_greedy", hubPar = c("degree", "betweenness", "closeness"))
+# 
+# 
+# outputits2.comp.props.hubpars= summary(comp_its2_props1.hubpars, groupNames = c("Elevated", "Ambient"))
+# 
+# hubs.pars.its2=outputits2.comp.props.hubpars$hubs
+
 
 #16s
 comp_16s_props1 <- netAnalyze(net_16s_comp, clustMethod = "cluster_fast_greedy", hubPar = "eigenvector")
@@ -966,6 +976,8 @@ sum.comp.its2=summary(comp_its2,
         showCentr = c("degree", "between", "closeness"), 
         numbNodes = 5)
 
+sum.comp.its2$jaccmat
+
 #16s
 comp_bac <- netCompare(comp_16s_props1, 
                           permTest = FALSE, 
@@ -977,6 +989,7 @@ sum.comp.bac=summary(comp_bac,
         showCentr = c("degree", "between", "closeness"), 
         numbNodes = 5)
 
+sum.comp.bac$jaccmat
 ```
 
 ## Make / output tables of relevant metrics
@@ -1018,6 +1031,25 @@ netmets= rbind(netmets, netmets.its2)
 colnames(netmets) <- c("metric", "Elevated CO2" , "Ambient CO2" ,"difference", "dataset")
 
 write.csv(netmets, paste0(output.loc, "/net.metrics.all.csv"))
+
+#jaccard
+jac.mat= sum.comp.its2$jaccmat
+jac.mat$dataset <-"its2"
+jac.mat= jac.mat %>% rownames_to_column("metric")
+
+jac.its1=sum.comp.its1$jaccmat
+jac.its1$dataset <-"its1"
+jac.its1= jac.its1 %>% rownames_to_column("metric")
+
+jac.bac=sum.comp.bac$jaccmat
+jac.bac$dataset <-"bac"
+jac.bac= jac.bac %>% rownames_to_column("metric")
+
+jac.mat= rbind(jac.its1,jac.mat)
+
+jac.mat= rbind(jac.mat, jac.bac)
+
+write.csv(jac.mat, paste0(output.loc, "/jaccard.mat.all.csv"))
 
 ```
 
